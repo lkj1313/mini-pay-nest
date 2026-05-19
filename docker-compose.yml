@@ -1,0 +1,28 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mini-pay-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mini_pay
+      POSTGRES_PASSWORD: mini_pay_password
+      POSTGRES_DB: mini_pay
+      TZ: Asia/Seoul
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: mini-pay-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
+volumes:
+  postgres_data:
+  redis_data:
