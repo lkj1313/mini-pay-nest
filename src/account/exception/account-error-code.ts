@@ -32,4 +32,19 @@ export const AccountErrorCode = {
     code: 'ACCOUNT-006',
     message: '금액은 0보다 커야 합니다.',
   },
+  RECIPIENT_ACCOUNT_NOT_FOUND: {
+    status: HttpStatus.NOT_FOUND,
+    code: 'ACCOUNT-007',
+    message: '수신 계좌를 찾을 수 없습니다.',
+  },
+  CANNOT_TRANSFER_TO_SELF: {
+    status: HttpStatus.BAD_REQUEST,
+    code: 'ACCOUNT-008',
+    message: '본인 계좌로는 송금할 수 없습니다.',
+  },
+  RECIPIENT_NOT_MAIN_ACCOUNT: {
+    status: HttpStatus.BAD_REQUEST,
+    code: 'ACCOUNT-009',
+    message: '수신 계좌는 메인 계좌여야 합니다.',
+  },
 } as const satisfies Record<string, ErrorCode>;

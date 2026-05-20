@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { ChargeMainAccountDto } from './dto/charge-main-account.dto';
 import { DepositToSavingsDto } from './dto/deposit-to-savings.dto';
+import { TransferToUserDto } from './dto/transfer-to-user.dto';
 
 @Controller('accounts')
 export class AccountController {
@@ -43,6 +44,32 @@ export class AccountController {
       user.userId,
       savingsAccountId,
       amount,
+    );
+  }
+
+  @Post('transfer')
+  @UseGuards(JwtAuthGuard)
+  async transferToUser(
+    @CurrentUser() user: { userId: string },
+    @Body() dto: TransferToUserDto,
+  ) {
+    const amount = BigInt(dto.amount);
+    return this.accountService.transferToUser(
+      user.userId,
+      dto.recipientAccountId,
+      amount,
+    );
+  }
+
+  @Get(':accountId/transactions')
+  @UseGuards(JwtAuthGuard)
+  async findTransactions(
+    @CurrentUser() user: { userId: string },
+    @Param('accountId') accountId: string,
+  ) {
+    return this.accountService.findTransactionsByAccountId(
+      user.userId,
+      accountId,
     );
   }
 }

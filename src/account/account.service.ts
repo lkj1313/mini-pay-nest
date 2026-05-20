@@ -3,8 +3,11 @@ import { PrismaService } from '../prisma/prisma.service';
 import { BaseException } from '../common/exception/base.exception';
 import { AccountErrorCode } from './exception/account-error-code';
 import { getKSTDate } from '../common/utils/date.util';
+import { randomUUID } from 'crypto';
+import { getAccountTypeLabel } from '../common/utils/account-type.util';
 
 const DAILY_TOP_UP_LIMIT = 3_000_000;
+const TEN_THOUSAND = 10000n;
 
 @Injectable()
 export class AccountService {
@@ -40,7 +43,7 @@ export class AccountService {
 
   async chargeMainAccount(userId: string, amount: bigint) {
     if (amount <= 0n) {
-      throw new BaseException(AccountErrorCode.INSUFFICIENT_BALANCE);
+      throw new BaseException(AccountErrorCode.INVALID_AMOUNT);
     }
 
     const mainAccount = await this.prisma.account.findFirst({
@@ -76,6 +79,16 @@ export class AccountService {
         data: { balance: { increment: amount } },
       });
 
+      await tx.transaction.create({
+        data: {
+          accountId: mainAccount.id,
+          type: 'CHARGE',
+          amount,
+          balanceAfter: updatedAccount.balance,
+          counterpartyName: null,
+        },
+      });
+
       return { account: updatedAccount, usage };
     });
 
@@ -108,6 +121,8 @@ export class AccountService {
       throw new BaseException(AccountErrorCode.ACCOUNT_ACCESS_DENIED);
     }
 
+    const groupId = randomUUID();
+
     const result = await this.prisma.$transaction(async (tx) => {
       const ids = [mainAccount.id, savingsAccount.id].sort();
       await tx.$queryRaw`
@@ -123,7 +138,7 @@ export class AccountService {
         throw new BaseException(AccountErrorCode.INSUFFICIENT_BALANCE);
       }
 
-      await tx.account.update({
+      const updatedMain = await tx.account.update({
         where: { id: mainAccount.id },
         data: { balance: { decrement: amount } },
       });
@@ -133,9 +148,170 @@ export class AccountService {
         data: { balance: { increment: amount } },
       });
 
+      await tx.transaction.create({
+        data: {
+          accountId: mainAccount.id,
+          type: 'TRANSFER_OUT',
+          amount: -amount,
+          balanceAfter: updatedMain.balance,
+          groupId,
+          counterpartyId: savingsAccountId,
+          counterpartyName: getAccountTypeLabel(savingsAccount.type),
+        },
+      });
+
+      await tx.transaction.create({
+        data: {
+          accountId: savingsAccountId,
+          type: 'TRANSFER_IN',
+          amount,
+          balanceAfter: updatedSavings.balance,
+          groupId,
+          counterpartyId: mainAccount.id,
+          counterpartyName: getAccountTypeLabel(mainAccount.type),
+        },
+      });
+
       return updatedSavings;
     });
 
     return result;
+  }
+
+  async transferToUser(
+    userId: string,
+    recipientAccountId: string,
+    amount: bigint,
+  ) {
+    if (amount <= 0n) {
+      throw new BaseException(AccountErrorCode.INVALID_AMOUNT);
+    }
+
+    const senderAccount = await this.prisma.account.findFirst({
+      where: { userId, type: 'MAIN' },
+    });
+    if (!senderAccount) {
+      throw new BaseException(AccountErrorCode.MAIN_ACCOUNT_NOT_FOUND);
+    }
+
+    const recipientAccount = await this.prisma.account.findUnique({
+      where: { id: recipientAccountId },
+    });
+    if (!recipientAccount) {
+      throw new BaseException(AccountErrorCode.RECIPIENT_ACCOUNT_NOT_FOUND);
+    }
+    if (recipientAccount.type !== 'MAIN') {
+      throw new BaseException(AccountErrorCode.RECIPIENT_NOT_MAIN_ACCOUNT);
+    }
+    if (recipientAccount.userId === userId) {
+      throw new BaseException(AccountErrorCode.CANNOT_TRANSFER_TO_SELF);
+    }
+
+    let chargeAmount = 0n;
+    if (senderAccount.balance < amount) {
+      const shortage = amount - senderAccount.balance;
+      chargeAmount = ((shortage + 9999n) / TEN_THOUSAND) * TEN_THOUSAND;
+    }
+
+    const todayDate = getKSTDate();
+    const groupId = randomUUID();
+
+    await this.prisma.$transaction(async (tx) => {
+      if (chargeAmount > 0n) {
+        const usage = await tx.dailyTopUpUsage.upsert({
+          where: {
+            userId_usageDate: { userId, usageDate: todayDate },
+          },
+          update: {
+            usedAmount: { increment: chargeAmount },
+          },
+          create: {
+            userId,
+            usageDate: todayDate,
+            usedAmount: chargeAmount,
+          },
+        });
+
+        if (usage.usedAmount > DAILY_TOP_UP_LIMIT) {
+          throw new BaseException(AccountErrorCode.DAILY_TOP_UP_LIMIT_EXCEEDED);
+        }
+      }
+
+      await tx.$queryRaw`
+        SELECT * FROM accounts WHERE id = ${senderAccount.id} FOR UPDATE
+      `;
+
+      if (chargeAmount > 0n) {
+        const charged = await tx.account.update({
+          where: { id: senderAccount.id },
+          data: { balance: { increment: chargeAmount } },
+        });
+
+        await tx.transaction.create({
+          data: {
+            accountId: senderAccount.id,
+            type: 'CHARGE',
+            amount: chargeAmount,
+            balanceAfter: charged.balance,
+            counterpartyName: null,
+          },
+        });
+      }
+
+      const updatedSender = await tx.account.update({
+        where: { id: senderAccount.id },
+        data: { balance: { decrement: amount } },
+      });
+
+      if (updatedSender.balance < 0n) {
+        throw new BaseException(AccountErrorCode.INSUFFICIENT_BALANCE);
+      }
+
+      const updatedRecipient = await tx.account.update({
+        where: { id: recipientAccountId },
+        data: { balance: { increment: amount } },
+      });
+
+      await tx.transaction.create({
+        data: {
+          accountId: senderAccount.id,
+          type: 'TRANSFER_OUT',
+          amount: -amount,
+          balanceAfter: updatedSender.balance,
+          groupId,
+          counterpartyId: recipientAccountId,
+          counterpartyName: getAccountTypeLabel(recipientAccount.type),
+        },
+      });
+
+      await tx.transaction.create({
+        data: {
+          accountId: recipientAccountId,
+          type: 'TRANSFER_IN',
+          amount,
+          balanceAfter: updatedRecipient.balance,
+          groupId,
+          counterpartyId: senderAccount.id,
+          counterpartyName: getAccountTypeLabel(senderAccount.type),
+        },
+      });
+    });
+  }
+
+  async findTransactionsByAccountId(userId: string, accountId: string) {
+    const account = await this.prisma.account.findUnique({
+      where: { id: accountId },
+    });
+    if (!account) {
+      throw new BaseException(AccountErrorCode.MAIN_ACCOUNT_NOT_FOUND);
+    }
+    if (account.userId !== userId) {
+      throw new BaseException(AccountErrorCode.ACCOUNT_ACCESS_DENIED);
+    }
+
+    return this.prisma.transaction.findMany({
+      where: { accountId },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 }

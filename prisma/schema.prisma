@@ -17,7 +17,7 @@ model User {
   name      String
   accounts  Account[]
   passwordHash String    @map("password_hash")
-
+  
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   dailyTopUpUsages  DailyTopUpUsage[]
@@ -30,7 +30,7 @@ model Account {
   type      AccountType
   balance   BigInt      @default(0)
   status    AccountStatus @default(ACTIVE)
-
+  transactions Transaction[]
   user      User        @relation(fields: [userId], references: [id])
 
   createdAt DateTime    @default(now())
@@ -57,6 +57,31 @@ model DailyTopUpUsage {
   @@map("daily_top_up_usages")
 }
 
+model Transaction {
+  id               String          @id @default(uuid())
+  accountId        String
+ 
+  type             TransactionType
+  amount           BigInt
+  balanceAfter     BigInt
+  groupId          String?
+  counterpartyId   String?
+  counterpartyName String?
+  createdAt        DateTime        @default(now())
+
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@index([accountId, createdAt])
+  @@index([groupId])
+  @@map("transactions")
+}
+
+enum TransactionType {
+  CHARGE       // 외부에서 내 계좌로 충전
+  TRANSFER_OUT // 내 계좌 → 다른 계좌로 이체 (출금)
+  TRANSFER_IN  // 다른 계좌 → 내 계좌로 이체 (입금)
+  WITHDRAW     // 내 계좌 → 외부로 출금
+}
 enum AccountType {
   MAIN
   SAVINGS
