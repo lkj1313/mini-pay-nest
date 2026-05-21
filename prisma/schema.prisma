@@ -21,6 +21,8 @@ model User {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   dailyTopUpUsages  DailyTopUpUsage[]
+  settlements        Settlement[]
+  settlementParticipants SettlementParticipant[]
   @@map("users")
 }
 
@@ -91,4 +93,53 @@ enum AccountStatus {
   ACTIVE
   CLOSED
   SUSPENDED
+}
+
+model Settlement {
+  id           String                  @id @default(uuid())
+  requesterId  String
+  totalAmount  BigInt
+  type         SettlementType
+  status       SettlementStatus        @default(PENDING)
+  participants SettlementParticipant[]
+
+  requester    User                    @relation(fields: [requesterId], references: [id])
+
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+
+  @@map("settlements")
+}
+
+model SettlementParticipant {
+  id           String            @id @default(uuid())
+  settlementId String
+  userId       String
+  amount       BigInt
+  status       ParticipantStatus @default(PENDING)
+
+  settlement   Settlement        @relation(fields: [settlementId], references: [id])
+  user         User              @relation(fields: [userId], references: [id])
+
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@index([settlementId])
+  @@index([userId])
+  @@map("settlement_participants")
+}
+
+enum SettlementType {
+  EQUAL
+  RANDOM
+}
+
+enum SettlementStatus {
+  PENDING
+  COMPLETED
+}
+
+enum ParticipantStatus {
+  PENDING
+  PAID
 }
