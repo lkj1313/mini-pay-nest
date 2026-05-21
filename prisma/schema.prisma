@@ -124,6 +124,7 @@ model SettlementParticipant {
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
 
+  @@unique([settlementId, userId])
   @@index([settlementId])
   @@index([userId])
   @@map("settlement_participants")
