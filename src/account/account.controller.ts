@@ -58,6 +58,7 @@ export class AccountController {
       user.userId,
       dto.recipientAccountId,
       amount,
+      dto.mode,
     );
   }
 
