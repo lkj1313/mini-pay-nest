@@ -34,6 +34,8 @@ model Account {
   status    AccountStatus @default(ACTIVE)
   transactions Transaction[]
   user      User        @relation(fields: [userId], references: [id])
+  sentTransferRequests     TransferRequest[] @relation("SentTransferRequests")
+  receivedTransferRequests TransferRequest[] @relation("ReceivedTransferRequests")
 
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
@@ -143,4 +145,33 @@ enum SettlementStatus {
 enum ParticipantStatus {
   PENDING
   PAID
+}
+
+model TransferRequest {
+  id                 String   @id @default(uuid())
+  senderAccountId    String
+  recipientAccountId String
+  amount             BigInt
+  status             TransferRequestStatus @default(PENDING)
+  expiresAt          DateTime
+  remindedAt         DateTime?
+
+  senderAccount      Account @relation("SentTransferRequests", fields: [senderAccountId], references: [id])
+  recipientAccount   Account @relation("ReceivedTransferRequests", fields: [recipientAccountId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([senderAccountId, status])
+  @@index([recipientAccountId, status])
+  @@index([status, expiresAt])
+  @@map("transfer_requests")
+}
+
+enum TransferRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CANCELLED
 }
