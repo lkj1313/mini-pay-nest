@@ -32,7 +32,11 @@ model Account {
   type      AccountType
   balance   BigInt      @default(0)
   status    AccountStatus @default(ACTIVE)
-  transactions Transaction[]
+  productType    SavingsProductType?
+  targetAmount   BigInt?            @default(0)
+  interestRate   Decimal?           @db.Decimal(5, 4)
+  lastInterestAt DateTime?
+  transactions   Transaction[]
   user      User        @relation(fields: [userId], references: [id])
   sentTransferRequests     TransferRequest[] @relation("SentTransferRequests")
   receivedTransferRequests TransferRequest[] @relation("ReceivedTransferRequests")
@@ -95,6 +99,11 @@ enum AccountStatus {
   ACTIVE
   CLOSED
   SUSPENDED
+}
+
+enum SavingsProductType {
+  FIXED
+  FLEXIBLE
 }
 
 model Settlement {
