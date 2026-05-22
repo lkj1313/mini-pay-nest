@@ -5,6 +5,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { ChargeMainAccountDto } from './dto/charge-main-account.dto';
 import { DepositToSavingsDto } from './dto/deposit-to-savings.dto';
 import { TransferToUserDto } from './dto/transfer-to-user.dto';
+import { CreateSavingsAccountDto } from './dto/create-savings-account.dto';
 
 @Controller('accounts')
 export class AccountController {
@@ -18,8 +19,11 @@ export class AccountController {
 
   @Post('savings')
   @UseGuards(JwtAuthGuard)
-  async createSavingsAccount(@CurrentUser() user: { userId: string }) {
-    return this.accountService.createSavingsAccount(user.userId);
+  async createSavingsAccount(
+    @CurrentUser() user: { userId: string },
+    @Body() dto: CreateSavingsAccountDto,
+  ) {
+    return this.accountService.createSavingsAccount(user.userId, dto);
   }
 
   @Post('main/charge')
@@ -58,6 +62,7 @@ export class AccountController {
       user.userId,
       dto.recipientAccountId,
       amount,
+      dto.mode,
     );
   }
 

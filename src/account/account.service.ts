@@ -5,6 +5,8 @@ import { AccountErrorCode } from './exception/account-error-code';
 import { getKSTDate } from '../common/utils/date.util';
 import { randomUUID } from 'crypto';
 import { getAccountTypeLabel } from '../common/utils/account-type.util';
+import { TransferMode } from './dto/transfer-to-user.dto';
+import { CreateSavingsAccountDto } from './dto/create-savings-account.dto';
 
 const DAILY_TOP_UP_LIMIT = 3_000_000;
 const TEN_THOUSAND = 10000n;
@@ -25,7 +27,7 @@ export class AccountService {
     });
   }
 
-  async createSavingsAccount(userId: string) {
+  async createSavingsAccount(userId: string, dto: CreateSavingsAccountDto) {
     const mainAccount = await this.prisma.account.findFirst({
       where: { userId, type: 'MAIN' },
     });
@@ -33,10 +35,21 @@ export class AccountService {
       throw new BaseException(AccountErrorCode.MAIN_ACCOUNT_NOT_FOUND);
     }
 
+    const targetAmount = dto.targetAmount ? BigInt(dto.targetAmount) : 0n;
+
+    if (dto.productType === 'FIXED' && targetAmount <= 0n) {
+      throw new BaseException(AccountErrorCode.INVALID_AMOUNT);
+    }
+
+    const interestRate = dto.productType === 'FIXED' ? 0.05 : 0.03;
+
     return this.prisma.account.create({
       data: {
         userId,
         type: 'SAVINGS',
+        productType: dto.productType,
+        targetAmount,
+        interestRate,
       },
     });
   }
@@ -126,8 +139,8 @@ export class AccountService {
     const result = await this.prisma.$transaction(async (tx) => {
       const ids = [mainAccount.id, savingsAccount.id].sort();
       await tx.$queryRaw`
-        SELECT * FROM accounts 
-        WHERE id IN (${ids[0]}, ${ids[1]}) 
+        SELECT * FROM accounts
+        WHERE id IN (${ids[0]}, ${ids[1]})
         FOR UPDATE
       `;
 
@@ -182,6 +195,7 @@ export class AccountService {
     userId: string,
     recipientAccountId: string,
     amount: bigint,
+    mode: TransferMode = TransferMode.INSTANT,
   ) {
     if (amount <= 0n) {
       throw new BaseException(AccountErrorCode.INVALID_AMOUNT);
@@ -205,6 +219,34 @@ export class AccountService {
     }
     if (recipientAccount.userId === userId) {
       throw new BaseException(AccountErrorCode.CANNOT_TRANSFER_TO_SELF);
+    }
+
+    // ─── REQUIRE_CONFIRM: 수락 필요 모드 ───
+    if (mode === TransferMode.REQUIRE_CONFIRM) {
+      if (senderAccount.balance < amount) {
+        throw new BaseException(AccountErrorCode.INSUFFICIENT_BALANCE);
+      }
+
+      const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
+
+      await this.prisma.$transaction(async (tx) => {
+        await tx.account.update({
+          where: { id: senderAccount.id },
+          data: { balance: { decrement: amount } },
+        });
+
+        await tx.transferRequest.create({
+          data: {
+            senderAccountId: senderAccount.id,
+            recipientAccountId: recipientAccount.id,
+            amount,
+            status: 'PENDING',
+            expiresAt,
+          },
+        });
+      });
+
+      return;
     }
 
     let chargeAmount = 0n;

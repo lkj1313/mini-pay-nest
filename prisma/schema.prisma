@@ -21,6 +21,8 @@ model User {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   dailyTopUpUsages  DailyTopUpUsage[]
+  settlements        Settlement[]
+  settlementParticipants SettlementParticipant[]
   @@map("users")
 }
 
@@ -30,8 +32,14 @@ model Account {
   type      AccountType
   balance   BigInt      @default(0)
   status    AccountStatus @default(ACTIVE)
-  transactions Transaction[]
+  productType    SavingsProductType?
+  targetAmount   BigInt?            @default(0)
+  interestRate   Decimal?           @db.Decimal(5, 4)
+  lastInterestAt DateTime?
+  transactions   Transaction[]
   user      User        @relation(fields: [userId], references: [id])
+  sentTransferRequests     TransferRequest[] @relation("SentTransferRequests")
+  receivedTransferRequests TransferRequest[] @relation("ReceivedTransferRequests")
 
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
@@ -91,4 +99,88 @@ enum AccountStatus {
   ACTIVE
   CLOSED
   SUSPENDED
+}
+
+enum SavingsProductType {
+  FIXED
+  FLEXIBLE
+}
+
+model Settlement {
+  id           String                  @id @default(uuid())
+  requesterId  String
+  totalAmount  BigInt
+  type         SettlementType
+  status       SettlementStatus        @default(PENDING)
+  participants SettlementParticipant[]
+
+  requester    User                    @relation(fields: [requesterId], references: [id])
+
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+
+  @@map("settlements")
+}
+
+model SettlementParticipant {
+  id           String            @id @default(uuid())
+  settlementId String
+  userId       String
+  amount       BigInt
+  status       ParticipantStatus @default(PENDING)
+
+  settlement   Settlement        @relation(fields: [settlementId], references: [id])
+  user         User              @relation(fields: [userId], references: [id])
+
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@unique([settlementId, userId])
+  @@index([settlementId])
+  @@index([userId])
+  @@map("settlement_participants")
+}
+
+enum SettlementType {
+  EQUAL
+  RANDOM
+}
+
+enum SettlementStatus {
+  PENDING
+  COMPLETED
+}
+
+enum ParticipantStatus {
+  PENDING
+  PAID
+}
+
+model TransferRequest {
+  id                 String   @id @default(uuid())
+  senderAccountId    String
+  recipientAccountId String
+  amount             BigInt
+  status             TransferRequestStatus @default(PENDING)
+  expiresAt          DateTime
+  remindedAt         DateTime?
+
+  senderAccount      Account @relation("SentTransferRequests", fields: [senderAccountId], references: [id])
+  recipientAccount   Account @relation("ReceivedTransferRequests", fields: [recipientAccountId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([senderAccountId, status])
+  @@index([recipientAccountId, status])
+  @@index([status, expiresAt])
+  @@map("transfer_requests")
+}
+
+enum TransferRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CANCELLED
 }
