@@ -6,6 +6,7 @@ import { getKSTDate } from '../common/utils/date.util';
 import { randomUUID } from 'crypto';
 import { getAccountTypeLabel } from '../common/utils/account-type.util';
 import { TransferMode } from './dto/transfer-to-user.dto';
+import { CreateSavingsAccountDto } from './dto/create-savings-account.dto';
 
 const DAILY_TOP_UP_LIMIT = 3_000_000;
 const TEN_THOUSAND = 10000n;
@@ -26,7 +27,7 @@ export class AccountService {
     });
   }
 
-  async createSavingsAccount(userId: string) {
+  async createSavingsAccount(userId: string, dto: CreateSavingsAccountDto) {
     const mainAccount = await this.prisma.account.findFirst({
       where: { userId, type: 'MAIN' },
     });
@@ -34,10 +35,21 @@ export class AccountService {
       throw new BaseException(AccountErrorCode.MAIN_ACCOUNT_NOT_FOUND);
     }
 
+    const targetAmount = dto.targetAmount ? BigInt(dto.targetAmount) : 0n;
+
+    if (dto.productType === 'FIXED' && targetAmount <= 0n) {
+      throw new BaseException(AccountErrorCode.INVALID_AMOUNT);
+    }
+
+    const interestRate = dto.productType === 'FIXED' ? 0.05 : 0.03;
+
     return this.prisma.account.create({
       data: {
         userId,
         type: 'SAVINGS',
+        productType: dto.productType,
+        targetAmount,
+        interestRate,
       },
     });
   }
@@ -237,7 +249,6 @@ export class AccountService {
       return;
     }
 
-    // ─── INSTANT: 즉시 송금 (기존 로직) ───
     let chargeAmount = 0n;
     if (senderAccount.balance < amount) {
       const shortage = amount - senderAccount.balance;
